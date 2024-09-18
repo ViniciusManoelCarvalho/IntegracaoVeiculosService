@@ -1,2 +1,120 @@
 # IntegracaoVeiculosService
 Classe responsável por receber uma lista de veículos e inseri-los no objeto Carros__c do Salesforce.
+
+```apex
+@RestResource(urlMapping='/veiculosAPI/*')
+global with sharing class IntegracaoVeiculosService {
+    
+    global class Veiculo {
+        public String chassi;
+        public String combustivel;
+        public String renavam;
+        public String cor;
+        public String modelo;
+        public String fabricante;
+        public String placa;
+        public String situacaoVeiculo;
+        public Integer quilometragem;
+    }
+    
+    @HttpPost
+    global static void criarVeiculos() {
+        RestRequest req = RestContext.request;
+        RestResponse res = RestContext.response;
+        
+        try {
+            String jsonInput = req.requestBody.toString();
+            
+            List<Veiculo> veiculos = (List<Veiculo>) JSON.deserialize(jsonInput, List<Veiculo>.class);
+            
+            if (veiculos.isEmpty()) {
+                res.statusCode = 400;
+                res.responseBody = Blob.valueOf('{"error":"Nenhum veículo fornecido."}');
+                return;
+            }
+            
+            List<Carro__c> carrosToInsert = new List<Carro__c>();
+            
+            Set<String> fabricantesSet = new Set<String>();
+            for(Veiculo v : veiculos){
+                if(String.isNotBlank(v.fabricante)){
+                    fabricantesSet.add(v.fabricante.trim());
+                }
+            }
+            
+            Map<String, Id> fabricanteMap = new Map<String, Id>();
+            
+            if(!fabricantesSet.isEmpty()){
+                for(Account acc : [SELECT Id, Name FROM Account WHERE Name IN :fabricantesSet]){
+                    fabricanteMap.put(acc.Name.trim(), acc.Id);
+                }
+            }
+            
+            Set<String> fabricantesParaCriar = new Set<String>();
+            for(String fabricante : fabricantesSet){
+                if(!fabricanteMap.containsKey(fabricante)){
+                    fabricantesParaCriar.add(fabricante);
+                }
+            }
+            
+            List<Account> contasParaInserir = new List<Account>();
+            for(String fabricante : fabricantesParaCriar){
+                contasParaInserir.add(new Account(Name = fabricante));
+            }
+            
+            if(!contasParaInserir.isEmpty()){
+                insert contasParaInserir;
+                for(Account acc : contasParaInserir){
+                    fabricanteMap.put(acc.Name.trim(), acc.Id);
+                }
+            }
+            
+            for(Veiculo v : veiculos){
+                if(String.isBlank(v.chassi)) {
+                    continue;
+                }
+                
+                Carro__c carro = new Carro__c();
+                carro.Chassi__c = v.chassi.trim();
+                carro.Combustivel__c = v.combustivel != null ? v.combustivel.trim() : null;
+                carro.Renavam__c = v.renavam != null ? v.renavam.trim() : null;
+                carro.Cor__c = v.cor != null ? v.cor.trim() : null;
+                carro.Modelo__c = v.modelo != null ? v.modelo.trim() : null;
+                carro.Placa__c = v.placa != null ? v.placa.trim() : null;
+                carro.SituacaoVeiculo__c = v.situacaoVeiculo != null ? v.situacaoVeiculo.trim() : null;
+                carro.Quilometragem__c = v.quilometragem;
+                
+                if(String.isNotBlank(v.fabricante)){
+                    String fabricanteTrimmed = v.fabricante.trim();
+                    if(fabricanteMap.containsKey(fabricanteTrimmed)){
+                        carro.Fabricante__c = fabricanteMap.get(fabricanteTrimmed);
+                    }
+                }
+                
+                carrosToInsert.add(carro);
+            }
+            
+            if(!carrosToInsert.isEmpty()){
+                insert carrosToInsert;
+            }
+            else {
+                res.statusCode = 400;
+                res.responseBody = Blob.valueOf('{"error":"Nenhum veículo válido para inserir."}');
+                return;
+            }
+            
+            res.statusCode = 201;
+            res.responseBody = Blob.valueOf('{"message":"Veículos criados com sucesso.", "quantidade":' + carrosToInsert.size() + '}');
+        }
+        catch(DmlException dmle){
+            res.statusCode = 400;
+            res.responseBody = Blob.valueOf('{"error":"Erro ao inserir registros: ' + String.escapeSingleQuotes(dmle.getMessage()) + '"}');
+        }
+        catch(Exception e){
+            res.statusCode = 500;
+            res.responseBody = Blob.valueOf('{"error":"Erro interno: ' + String.escapeSingleQuotes(e.getMessage()) + '"}');
+        }
+    }
+}
+
+```
